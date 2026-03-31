@@ -28,6 +28,7 @@ interface FetchOutcome {
   attempts: number;
   retries: number;
   content?: string;
+  contentType?: string;
   error?: string;
 }
 
@@ -45,6 +46,11 @@ export async function crawlLlmsDocs(
   const visited = new Set<string>();
   const skippedRecorded = new Set<string>();
 
+  settings.onProgress?.({
+    type: "start",
+    inputUrl: normalizedInputUrl,
+  });
+
   if (isDirectLlmsUrl(normalizedInputUrl)) {
     probes.push({
       url: normalizedInputUrl,
@@ -58,6 +64,10 @@ export async function crawlLlmsDocs(
   } else {
     for (const candidateName of LLMS_FILENAMES) {
       const candidateUrl = buildProbeUrl(normalizedInputUrl, candidateName);
+      settings.onProgress?.({
+        type: "probe",
+        url: candidateUrl,
+      });
       const outcome = await fetchWithRetry(candidateUrl, settings);
 
       probes.push({
@@ -99,6 +109,11 @@ export async function crawlLlmsDocs(
     }
 
     visited.add(normalizedUrl);
+    settings.onProgress?.({
+      type: "crawl",
+      url: normalizedUrl,
+      sourceUrl: item.sourceUrl,
+    });
 
     const outcome = item.prefetched ?? (await fetchWithRetry(normalizedUrl, settings));
 
@@ -151,6 +166,13 @@ export async function crawlLlmsDocs(
       discoveredLinks,
     });
 
+    await settings.onDocument?.({
+      url: normalizedUrl,
+      sourceUrl: item.sourceUrl,
+      content: outcome.content ?? "",
+      contentType: outcome.contentType,
+    });
+
     for (const childUrl of discoveredLinks) {
       queue.push({
         url: childUrl,
@@ -159,7 +181,7 @@ export async function crawlLlmsDocs(
     }
   }
 
-  return {
+  const result = {
     inputUrl: normalizedInputUrl,
     settings,
     probes,
@@ -167,6 +189,13 @@ export async function crawlLlmsDocs(
     edges,
     summary: buildSummary(probes, documents),
   };
+
+  settings.onProgress?.({
+    type: "complete",
+    summary: result.summary,
+  });
+
+  return result;
 }
 
 function resolveOptions(options: CrawlOptions): Required<CrawlOptions> {
@@ -174,6 +203,8 @@ function resolveOptions(options: CrawlOptions): Required<CrawlOptions> {
     maxRetries: normalizeInteger(options.maxRetries, DEFAULT_OPTIONS.maxRetries),
     baseDelayMs: normalizeInteger(options.baseDelayMs, DEFAULT_OPTIONS.baseDelayMs),
     timeoutMs: normalizeInteger(options.timeoutMs, DEFAULT_OPTIONS.timeoutMs),
+    onProgress: options.onProgress ?? (() => {}),
+    onDocument: options.onDocument ?? (() => undefined),
   };
 }
 
@@ -248,6 +279,7 @@ async function fetchWithRetry(
           attempts,
           retries,
           content: await response.text(),
+          contentType: response.headers.get("content-type") ?? undefined,
         };
       }
 
@@ -274,7 +306,15 @@ async function fetchWithRetry(
     }
 
     retries += 1;
-    await sleep(settings.baseDelayMs * 2 ** (retries - 1));
+    const nextDelayMs = settings.baseDelayMs * 2 ** (retries - 1);
+    settings.onProgress?.({
+      type: "retry",
+      url,
+      statusCode: lastStatusCode ?? 0,
+      nextDelayMs,
+      attempt: attempts,
+    });
+    await sleep(nextDelayMs);
   }
 
   return {

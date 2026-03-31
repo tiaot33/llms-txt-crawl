@@ -10,7 +10,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "start": "node \"./dist/cli.js\"",
+    "build": "tsc -p tsconfig.json && node --eval \"if (process.platform !== 'win32') require('node:fs').chmodSync('./dist/cli.js', 0o755)\"",
     "test": "node --test --experimental-strip-types \"./test/**/*.test.ts\""
   },
   "engines": {

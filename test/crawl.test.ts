@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { crawlLlmsDocs } from "../src/crawl.ts";
+import {
+  formatSummaryOutput,
+  parseArgs,
+  persistDocument,
+  resolveOutputRoot,
+} from "../src/cli-support.ts";
 
 test("direct LLMS URL skips suffix probing", async () => {
   const originalFetch = globalThis.fetch;
@@ -171,4 +180,140 @@ test("restricted responses use exponential backoff retries", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("successful documents trigger onDocument with fetched content", async () => {
+  const originalFetch = globalThis.fetch;
+  const captured: Array<{ url: string; content: string; contentType?: string }> = [];
+
+  globalThis.fetch = async () =>
+    new Response("hello", {
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+
+  try {
+    const result = await crawlLlmsDocs("https://example.com/llms.txt", {
+      onDocument: async (document) => {
+        captured.push({
+          url: document.url,
+          content: document.content,
+          contentType: document.contentType,
+        });
+      },
+    });
+
+    assert.equal(result.summary.documentsSucceeded, 1);
+    assert.deepEqual(captured, [
+      {
+        url: "https://example.com/llms.txt",
+        content: "hello",
+        contentType: "text/plain; charset=utf-8",
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("parseArgs supports output-dir and numeric options", () => {
+  const parsed = parseArgs([
+    "https://example.com/docs",
+    "--output-dir",
+    "./saved",
+    "--max-retries",
+    "5",
+    "--timeout-ms",
+    "2000",
+  ]);
+
+  assert.equal(parsed.inputUrl, "https://example.com/docs");
+  assert.equal(parsed.outputDir, "./saved");
+  assert.deepEqual(parsed.options, {
+    maxRetries: 5,
+    timeoutMs: 2000,
+  });
+});
+
+test("resolveOutputRoot defaults to output hostname directory", () => {
+  const outputRoot = resolveOutputRoot(
+    "https://Example.com/docs",
+    undefined,
+    "/tmp/project",
+  );
+
+  assert.equal(outputRoot, path.resolve("/tmp/project", "output", "example.com"));
+});
+
+test("persistDocument stores content by URL path and query suffix", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "llms-crawl-"));
+  const relativePath = await persistDocument(tempRoot, {
+    url: "https://example.com/docs/intro.md?lang=zh&v=1",
+    content: "# intro",
+  });
+  const savedFile = path.join(tempRoot, ...relativePath.split("/"));
+  const savedContent = await readFile(savedFile, "utf8");
+
+  assert.equal(relativePath, "docs/intro__lang-zh_v-1.md");
+  assert.equal(savedContent, "# intro");
+});
+
+test("formatSummaryOutput prints summary and failed URLs only", () => {
+  const output = formatSummaryOutput(
+    {
+      inputUrl: "https://example.com/docs",
+      settings: {
+        maxRetries: 3,
+        baseDelayMs: 500,
+        timeoutMs: 10000,
+      },
+      probes: [],
+      documents: [
+        {
+          url: "https://example.com/docs/ok.md",
+          status: "success",
+          attempts: 1,
+          retries: 0,
+          discoveredLinks: [],
+        },
+        {
+          url: "https://example.com/docs/bad.md",
+          status: "failed",
+          attempts: 1,
+          retries: 0,
+          discoveredLinks: [],
+        },
+        {
+          url: "https://other.example.com/skip.md",
+          status: "skipped",
+          attempts: 0,
+          retries: 0,
+          skippedReason: "Cross-domain or unsupported document URL skipped.",
+          discoveredLinks: [],
+        },
+      ],
+      edges: [],
+      summary: {
+        seedsCount: 1,
+        probesTotal: 1,
+        probesHit: 1,
+        documentsTotal: 3,
+        documentsSucceeded: 1,
+        documentsFailed: 1,
+        documentsSkipped: 1,
+        restrictedRetries: 0,
+      },
+    },
+    "/tmp/output/example.com",
+  );
+
+  assert.equal(
+    output,
+    [
+      'success=1 failed=1 output="/tmp/output/example.com"',
+      "failed-pages:",
+      "https://example.com/docs/bad.md",
+      "",
+    ].join("\n"),
+  );
 });

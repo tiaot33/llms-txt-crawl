@@ -2,7 +2,42 @@ export interface CrawlOptions {
   maxRetries?: number;
   baseDelayMs?: number;
   timeoutMs?: number;
+  onProgress?: (event: CrawlProgressEvent) => void;
+  onDocument?: (event: CrawlDocumentEvent) => void | Promise<void>;
 }
+
+export interface CrawlDocumentEvent {
+  url: string;
+  sourceUrl?: string;
+  content: string;
+  contentType?: string;
+}
+
+export type CrawlProgressEvent =
+  | {
+    type: "start";
+    inputUrl: string;
+  }
+  | {
+    type: "probe";
+    url: string;
+  }
+  | {
+    type: "crawl";
+    url: string;
+    sourceUrl?: string;
+  }
+  | {
+    type: "retry";
+    url: string;
+    statusCode: number;
+    nextDelayMs: number;
+    attempt: number;
+  }
+  | {
+    type: "complete";
+    summary: CrawlSummary;
+  };
 
 export type ProbeType = "direct-seed" | "candidate";
 export type DocumentStatus = "success" | "failed" | "skipped";
