@@ -1,8 +1,21 @@
 {
   "name": "llms-txt-crawl",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Probe LLMS-friendly documents and recursively crawl linked markdown/text documents.",
   "type": "module",
+  "license": "MIT",
+  "author": "tiaot33",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tiaot33/llms-txt-crawl.git"
+  },
+  "keywords": [
+    "llms",
+    "llms-txt",
+    "crawler",
+    "markdown",
+    "documentation"
+  ],
   "bin": {
     "llms-txt-crawl": "./dist/cli.js"
   },
