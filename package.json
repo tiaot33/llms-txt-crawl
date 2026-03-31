@@ -1,0 +1,23 @@
+{
+  "name": "llms-crawl",
+  "version": "0.1.0",
+  "description": "Probe LLMS-friendly documents and recursively crawl linked markdown/text documents.",
+  "type": "module",
+  "bin": {
+    "llms-crawl": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test --experimental-strip-types \"./test/**/*.test.ts\""
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "typescript": "^5.9.3"
+  }
+}
