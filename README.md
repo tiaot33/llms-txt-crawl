@@ -1,117 +1,114 @@
 # llms-txt-crawl
 
-抓取站点的 LLMS 文档及其继续引用的同域 `.md` / `.txt` 文档，并将成功结果保存到本地目录。
+Probe and recursively crawl [llms.txt](https://llmstxt.org/) documents from any website, saving all linked `.md` / `.txt` files to a local directory.
 
-## 适用场景
+## Features
 
-- 你有一个站点入口 URL，想快速判断它是否提供 `llms.txt`
-- 你已经拿到 `llms.txt` / `llms-full.txt` / `llms-small.txt`，想递归抓取关联文档
-- 你需要把抓取结果落盘，供后续索引、清洗或离线处理
+- Auto-detect `llms.txt` / `llms-full.txt` / `llms-small.txt` from any site URL
+- Recursively crawl same-host `.md` / `.txt` documents referenced in the entry file
+- Exponential backoff retries for `403`, `429`, `503` responses
+- Zero config — just give it a URL
 
-## 运行要求
-
-- Node.js `20+`
-- npm `11+` 或兼容版本
-
-## 30 秒上手
-
-安装依赖并构建：
+## Quick Start
 
 ```bash
-npm install
-npm run build
+npx llms-txt-crawl "https://docs.anthropic.com"
 ```
 
-直接运行：
+That's it. Documents are saved to `./output/<hostname>/` by default.
+
+## Install
 
 ```bash
-npm start -- "https://example.com/docs"
+# Global install
+npm install -g llms-txt-crawl
+
+# Then use directly
+llms-txt-crawl "https://docs.anthropic.com"
 ```
 
-如果希望在本机直接使用 `llms-txt-crawl` 命令：
+## Usage
 
 ```bash
-npm link
-llms-txt-crawl "https://example.com/docs"
+npx llms-txt-crawl <url> [options]
 ```
 
-## 命令格式
+### Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--output-dir <dir>` | `./output/<host>` | Output directory |
+| `--max-retries <n>` | `3` | Max retries for 403/429/503 |
+| `--base-delay-ms <n>` | `500` | Exponential backoff base delay |
+| `--timeout-ms <n>` | `10000` | Request timeout per fetch |
+
+### Examples
+
+Crawl from a site URL (auto-probes for llms.txt):
 
 ```bash
-llms-txt-crawl <url> [--output-dir DIR] [--max-retries N] [--base-delay-ms N] [--timeout-ms N]
+npx llms-txt-crawl "https://example.com/docs"
 ```
 
-## 常见用法
-
-从普通页面开始探测并抓取：
+Start directly from an llms.txt file:
 
 ```bash
-npm start -- "https://example.com/docs"
+npx llms-txt-crawl "https://example.com/llms.txt"
 ```
 
-直接从已有 LLMS 文档开始：
+Custom output directory with retry tuning:
 
 ```bash
-npm start -- "https://example.com/llms.txt"
+npx llms-txt-crawl "https://example.com/docs" \
+  --output-dir "./saved-docs" \
+  --max-retries 5 \
+  --timeout-ms 15000
 ```
 
-指定输出目录：
+## Output
 
-```bash
-npm start -- "https://example.com/docs" --output-dir "./saved-docs"
+### Directory structure
+
+```
+output/example.com/
+  llms.txt
+  docs/
+    intro.md
+    api/
+      overview.txt
 ```
 
-调整重试与超时：
+### Console output
 
-```bash
-npm start -- "https://example.com/docs" --max-retries 5 --base-delay-ms 500 --timeout-ms 15000
+Progress and status are written to `stderr`:
+
+```
+[llms-txt-crawl] start https://example.com/llms.txt
+[llms-txt-crawl] probe https://example.com/llms.txt
+[llms-txt-crawl] crawl https://example.com/docs/intro.md
+[llms-txt-crawl] done success=3 failed=0 skipped=0
 ```
 
-## 参数说明
+Summary is written to `stdout`:
 
-- `--output-dir`: 输出目录，默认 `./output/<host>`
-- `--max-retries`: 对 `403`、`429`、`503` 的最大重试次数，默认 `3`
-- `--base-delay-ms`: 指数退避基础等待时间，默认 `500`
-- `--timeout-ms`: 单次请求超时时间，默认 `10000`
-
-## 输出结果
-
-程序会输出两类信息：
-
-- `stderr`: 抓取进度、重试、完成状态
-- `stdout`: 最终摘要和失败页面列表
-
-默认输出目录示例：
-
-```text
-输入 URL: https://example.com/docs
-输出目录: ./output/example.com
 ```
-
-落盘示例：
-
-```text
-output/example.com/docs/llms.txt
-output/example.com/docs/files/intro.md
-output/example.com/files/overview.txt
-```
-
-摘要示例：
-
-```text
-success=3 failed=1 output="/abs/path/to/output/example.com"
+success=3 failed=1 output="./output/example.com"
 failed-pages:
 https://example.com/docs/missing.md
 ```
 
-## 行为边界
+## How It Works
 
-- 仅支持 `http` / `https`
-- 仅递归抓取同域 `.md` / `.txt` 文档
-- 仅保存成功抓取的文档
+1. If the input URL points directly to an `llms.txt` / `llms-full.txt` / `llms-small.txt`, skip probing
+2. Otherwise, probe the site by appending each candidate filename to the URL path
+3. For each discovered entry file, parse links to `.md` / `.txt` documents
+4. Recursively crawl all same-host document links
+5. Save every successfully fetched document to the output directory
 
-## 开发
+## Requirements
 
-```bash
-npm test
-```
+- Node.js >= 20
+
+## License
+
+MIT
