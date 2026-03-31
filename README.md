@@ -28,17 +28,17 @@ npm run build
 npm start -- "https://example.com/docs"
 ```
 
-如果希望在本机直接使用 `llms-crawl` 命令：
+如果希望在本机直接使用 `llms-txt-crawl` 命令：
 
 ```bash
 npm link
-llms-crawl "https://example.com/docs"
+llms-txt-crawl "https://example.com/docs"
 ```
 
 ## 命令格式
 
 ```bash
-llms-crawl <url> [--output-dir DIR] [--max-retries N] [--base-delay-ms N] [--timeout-ms N]
+llms-txt-crawl <url> [--output-dir DIR] [--max-retries N] [--base-delay-ms N] [--timeout-ms N]
 ```
 
 ## 常见用法

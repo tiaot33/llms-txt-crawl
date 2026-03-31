@@ -1,10 +1,10 @@
 {
-  "name": "llms-crawl",
+  "name": "llms-txt-crawl",
   "version": "0.1.0",
   "description": "Probe LLMS-friendly documents and recursively crawl linked markdown/text documents.",
   "type": "module",
   "bin": {
-    "llms-crawl": "./dist/cli.js"
+    "llms-txt-crawl": "./dist/cli.js"
   },
   "files": [
     "dist"

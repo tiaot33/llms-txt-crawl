@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-核心源码位于 `src/`。`src/cli.ts` 负责命令行入口与进度输出，`src/crawl.ts` 实现探测、重试和递归抓取流程，`src/cli-support.ts` 负责参数解析、输出目录解析与文档持久化，公共类型集中在 `src/types.ts`。测试位于 `test/`，当前以 `test/crawl.test.ts` 覆盖抓取主路径和 CLI 辅助逻辑。`dist/` 是构建产物，`output/` 是运行期抓取结果，二者都不应手工维护。
+核心源码位于 `src/`。`src/cli.ts` 负责 `llms-txt-crawl` 命令的入口、参数解析、进度输出、输出目录解析与文档持久化，`src/crawl.ts` 实现探测、重试和递归抓取流程，公共类型集中在 `src/types.ts`。测试位于 `test/`，当前以 `test/crawl.test.ts` 覆盖抓取主路径和 CLI 行为。`dist/` 是构建产物，`output/` 是运行期抓取结果，二者都不应手工维护。
 
 ## Build, Test, and Development Commands
 要求 Node.js 20+。
@@ -10,8 +10,9 @@
 - `npm run build`：将 `src/**/*.ts` 编译到 `dist/`，并为 `dist/cli.js` 添加可执行权限。
 - `npm test`：使用 Node 内置测试运行器执行 `test/**/*.test.ts`。
 - `npm start -- "https://example.com/docs"`：运行已构建的 CLI。
+- `npm link && llms-txt-crawl "https://example.com/docs"`：以全局命令形式验证发布后的 CLI 入口。
 
-本地验证推荐先构建，再执行 `./dist/cli.js "https://example.com/docs" --output-dir "./output/dev"`。
+本地验证推荐先构建，再执行 `./dist/cli.js "https://example.com/docs" --output-dir "./output/dev"`；对外统一命令名为 `llms-txt-crawl`，README、测试与包元数据必须保持一致。
 
 ## Coding Style & Naming Conventions
 项目使用严格模式 TypeScript、ESM 和 2 空格缩进。优先保持函数职责单一，CLI 侧负责 I/O 与持久化，抓取核心保持纯业务流程。变量和函数使用 `camelCase`，类型与接口使用 `PascalCase`，常量使用 `UPPER_SNAKE_CASE`。本地模块导入统一使用 `.js` 扩展名，以匹配 NodeNext 编译输出。

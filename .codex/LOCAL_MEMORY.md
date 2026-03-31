@@ -17,6 +17,11 @@
 
 ### 2026-03-31
 
+#### CLI 对外命令名统一为 llms-txt-crawl
+
+- npm 包名、`bin` 入口、README 示例、CLI 帮助文本与日志前缀统一使用 `llms-txt-crawl`。
+- 后续若调整命令名，必须同步检查 `package.json`、`package-lock.json`、`src/cli.ts`、测试断言、`README.md` 以及 `.codex/AGENTS.md`，避免文档与实际入口漂移。
+
 #### CLI 主产出从 stdout JSON 调整为落盘目录
 
 - 项目确认工具的主产出应是保存到磁盘的文档目录，而不是面向机器消费的 `stdout` JSON。

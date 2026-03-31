@@ -37,7 +37,7 @@ export async function crawlLlmsDocs(
   options: CrawlOptions = {},
 ): Promise<CrawlResult> {
   const settings = resolveOptions(options);
-  const normalizedInputUrl = normalizeInputUrl(inputUrl);
+  const normalizedInputUrl = normalizeUrl(inputUrl);
   const baseHostname = new URL(normalizedInputUrl).hostname.toLowerCase();
   const probes: ProbeResult[] = [];
   const documents: DocumentNode[] = [];
@@ -98,7 +98,7 @@ export async function crawlLlmsDocs(
       continue;
     }
 
-    const normalizedUrl = normalizeDocumentUrl(item.url);
+    const normalizedUrl = normalizeUrl(item.url);
 
     if (item.sourceUrl) {
       edges.push({ from: item.sourceUrl, to: normalizedUrl });
@@ -134,7 +134,7 @@ export async function crawlLlmsDocs(
     const discoveredLinks: string[] = [];
 
     for (const resolvedLink of parseDocumentLinks(outcome.content ?? "", normalizedUrl)) {
-      const childUrl = normalizeDocumentUrl(resolvedLink);
+      const childUrl = normalizeUrl(resolvedLink);
 
       if (isAllowedDiscoveredUrl(childUrl, baseHostname)) {
         discoveredLinks.push(childUrl);
@@ -220,13 +220,7 @@ function normalizeInteger(value: number | undefined, fallback: number): number {
   return value;
 }
 
-function normalizeInputUrl(inputUrl: string): string {
-  const url = new URL(inputUrl);
-  url.hash = "";
-  return url.toString();
-}
-
-function normalizeDocumentUrl(rawUrl: string): string {
+function normalizeUrl(rawUrl: string): string {
   const url = new URL(rawUrl);
   url.hash = "";
   return url.toString();
@@ -234,23 +228,18 @@ function normalizeDocumentUrl(rawUrl: string): string {
 
 function isDirectLlmsUrl(inputUrl: string): boolean {
   const url = new URL(inputUrl);
-  const pathname = trimTrailingSlashes(url.pathname);
+  const pathname = url.pathname.replace(/\/+$/u, "") || "/";
   const filename = pathname.split("/").at(-1)?.toLowerCase();
   return filename !== undefined && LLMS_FILENAMES.includes(filename as CandidateName);
 }
 
 function buildProbeUrl(inputUrl: string, candidateName: CandidateName): string {
   const url = new URL(inputUrl);
-  const pathname = trimTrailingSlashes(url.pathname);
+  const pathname = url.pathname.replace(/\/+$/u, "") || "/";
   url.pathname = pathname === "/" ? `/${candidateName}` : `${pathname}/${candidateName}`;
   url.search = "";
   url.hash = "";
   return url.toString();
-}
-
-function trimTrailingSlashes(pathname: string): string {
-  const trimmed = pathname.replace(/\/+$/u, "");
-  return trimmed === "" ? "/" : trimmed;
 }
 
 async function fetchWithRetry(
@@ -314,7 +303,9 @@ async function fetchWithRetry(
       nextDelayMs,
       attempt: attempts,
     });
-    await sleep(nextDelayMs);
+    await new Promise((resolve) => {
+      setTimeout(resolve, nextDelayMs);
+    });
   }
 
   return {
@@ -326,18 +317,12 @@ async function fetchWithRetry(
   };
 }
 
-function sleep(delayMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, delayMs);
-  });
-}
-
 function parseDocumentLinks(content: string, baseUrl: string): string[] {
   const links = new Set<string>();
   const addCandidate = (candidate: string): void => {
-    const cleaned = cleanupLinkCandidate(candidate);
+    const cleaned = candidate.trim().replace(/[),.;]+$/u, "");
 
-    if (!cleaned || !looksLikeDocumentLink(cleaned)) {
+    if (!cleaned || !/\.(md|txt)(?:[?#][^\s<)]*)?$/iu.test(cleaned)) {
       return;
     }
 
@@ -379,15 +364,6 @@ function parseDocumentLinks(content: string, baseUrl: string): string[] {
   return [...links];
 }
 
-function cleanupLinkCandidate(candidate: string): string {
-  return candidate.trim().replace(/[),.;]+$/u, "");
-}
-
-function looksLikeDocumentLink(candidate: string): boolean {
-  const withoutQuery = candidate.split(/[?#]/u, 1)[0] ?? candidate;
-  return /\.(md|txt)$/iu.test(withoutQuery);
-}
-
 function isAllowedDiscoveredUrl(url: string, baseHostname: string): boolean {
   const parsed = new URL(url);
   if (!["http:", "https:"].includes(parsed.protocol)) {
@@ -398,7 +374,7 @@ function isAllowedDiscoveredUrl(url: string, baseHostname: string): boolean {
     return false;
   }
 
-  return looksLikeDocumentLink(parsed.pathname);
+  return /\.(md|txt)$/iu.test(parsed.pathname);
 }
 
 function buildSummary(probes: ProbeResult[], documents: DocumentNode[]) {

@@ -5,12 +5,45 @@ import os from "node:os";
 import path from "node:path";
 
 import { crawlLlmsDocs } from "../src/crawl.ts";
-import {
-  formatSummaryOutput,
-  parseArgs,
-  persistDocument,
-  resolveOutputRoot,
-} from "../src/cli-support.ts";
+import { main } from "../src/cli.ts";
+
+function captureProcessOutput() {
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+  const originalStdoutWrite = process.stdout.write;
+  const originalStderrWrite = process.stderr.write;
+
+  process.stdout.write = ((chunk, encoding, callback) => {
+    stdoutChunks.push(typeof chunk === "string" ? chunk : chunk.toString());
+    if (typeof encoding === "function") {
+      encoding();
+    }
+    if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  }) as typeof process.stdout.write;
+
+  process.stderr.write = ((chunk, encoding, callback) => {
+    stderrChunks.push(typeof chunk === "string" ? chunk : chunk.toString());
+    if (typeof encoding === "function") {
+      encoding();
+    }
+    if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  }) as typeof process.stderr.write;
+
+  return {
+    restore() {
+      process.stdout.write = originalStdoutWrite;
+      process.stderr.write = originalStderrWrite;
+    },
+    stdout: stdoutChunks,
+    stderr: stderrChunks,
+  };
+}
 
 test("direct LLMS URL skips suffix probing", async () => {
   const originalFetch = globalThis.fetch;
@@ -216,104 +249,101 @@ test("successful documents trigger onDocument with fetched content", async () =>
   }
 });
 
-test("parseArgs supports output-dir and numeric options", () => {
-  const parsed = parseArgs([
-    "https://example.com/docs",
-    "--output-dir",
-    "./saved",
-    "--max-retries",
-    "5",
-    "--timeout-ms",
-    "2000",
-  ]);
+test("main writes crawled documents and summary output", async () => {
+  const originalFetch = globalThis.fetch;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "llms-txt-crawl-"));
+  const output = captureProcessOutput();
 
-  assert.equal(parsed.inputUrl, "https://example.com/docs");
-  assert.equal(parsed.outputDir, "./saved");
-  assert.deepEqual(parsed.options, {
-    maxRetries: 5,
-    timeoutMs: 2000,
-  });
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input.toString();
+
+    switch (url) {
+      case "https://example.com/llms.txt":
+        return new Response("[Intro](./docs/intro.md?lang=zh&v=1)", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        });
+      case "https://example.com/docs/intro.md?lang=zh&v=1":
+        return new Response("# intro", {
+          status: 200,
+          headers: { "content-type": "text/markdown" },
+        });
+      default:
+        throw new Error(`Unexpected URL: ${url}`);
+    }
+  };
+
+  try {
+    await main([
+      "https://example.com/llms.txt",
+      "--output-dir",
+      tempRoot,
+      "--max-retries",
+      "5",
+      "--timeout-ms",
+      "2000",
+    ]);
+
+    const llmsContent = await readFile(path.join(tempRoot, "llms.txt"), "utf8");
+    const introContent = await readFile(
+      path.join(tempRoot, "docs", "intro__lang-zh_v-1.md"),
+      "utf8",
+    );
+
+    assert.equal(llmsContent, "[Intro](./docs/intro.md?lang=zh&v=1)");
+    assert.equal(introContent, "# intro");
+    assert.equal(
+      output.stdout.join(""),
+      `success=2 failed=0 output="${tempRoot}"\n`,
+    );
+    assert.match(output.stderr.join(""), /\[llms-txt-crawl\] start https:\/\/example\.com\/llms\.txt/);
+    assert.match(
+      output.stderr.join(""),
+      /\[llms-txt-crawl\] done success=2 failed=0 skipped=0/,
+    );
+  } finally {
+    output.restore();
+    globalThis.fetch = originalFetch;
+  }
 });
 
-test("resolveOutputRoot defaults to output hostname directory", () => {
-  const outputRoot = resolveOutputRoot(
-    "https://Example.com/docs",
-    undefined,
-    "/tmp/project",
-  );
+test("main prints failed document URLs in summary", async () => {
+  const originalFetch = globalThis.fetch;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "llms-txt-crawl-"));
+  const output = captureProcessOutput();
 
-  assert.equal(outputRoot, path.resolve("/tmp/project", "output", "example.com"));
-});
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input.toString();
 
-test("persistDocument stores content by URL path and query suffix", async () => {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "llms-crawl-"));
-  const relativePath = await persistDocument(tempRoot, {
-    url: "https://example.com/docs/intro.md?lang=zh&v=1",
-    content: "# intro",
-  });
-  const savedFile = path.join(tempRoot, ...relativePath.split("/"));
-  const savedContent = await readFile(savedFile, "utf8");
+    switch (url) {
+      case "https://example.com/llms.txt":
+        return new Response("[Broken](./docs/bad.md)", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        });
+      case "https://example.com/docs/bad.md":
+        return new Response("nope", { status: 500 });
+      default:
+        throw new Error(`Unexpected URL: ${url}`);
+    }
+  };
 
-  assert.equal(relativePath, "docs/intro__lang-zh_v-1.md");
-  assert.equal(savedContent, "# intro");
-});
+  try {
+    await main(["https://example.com/llms.txt", "--output-dir", tempRoot]);
 
-test("formatSummaryOutput prints summary and failed URLs only", () => {
-  const output = formatSummaryOutput(
-    {
-      inputUrl: "https://example.com/docs",
-      settings: {
-        maxRetries: 3,
-        baseDelayMs: 500,
-        timeoutMs: 10000,
-      },
-      probes: [],
-      documents: [
-        {
-          url: "https://example.com/docs/ok.md",
-          status: "success",
-          attempts: 1,
-          retries: 0,
-          discoveredLinks: [],
-        },
-        {
-          url: "https://example.com/docs/bad.md",
-          status: "failed",
-          attempts: 1,
-          retries: 0,
-          discoveredLinks: [],
-        },
-        {
-          url: "https://other.example.com/skip.md",
-          status: "skipped",
-          attempts: 0,
-          retries: 0,
-          skippedReason: "Cross-domain or unsupported document URL skipped.",
-          discoveredLinks: [],
-        },
-      ],
-      edges: [],
-      summary: {
-        seedsCount: 1,
-        probesTotal: 1,
-        probesHit: 1,
-        documentsTotal: 3,
-        documentsSucceeded: 1,
-        documentsFailed: 1,
-        documentsSkipped: 1,
-        restrictedRetries: 0,
-      },
-    },
-    "/tmp/output/example.com",
-  );
-
-  assert.equal(
-    output,
-    [
-      'success=1 failed=1 output="/tmp/output/example.com"',
-      "failed-pages:",
-      "https://example.com/docs/bad.md",
-      "",
-    ].join("\n"),
-  );
+    assert.equal(await readFile(path.join(tempRoot, "llms.txt"), "utf8"), "[Broken](./docs/bad.md)");
+    await assert.rejects(() => readFile(path.join(tempRoot, "docs", "bad.md"), "utf8"));
+    assert.equal(
+      output.stdout.join(""),
+      [
+        `success=1 failed=1 output="${tempRoot}"`,
+        "failed-pages:",
+        "https://example.com/docs/bad.md",
+        "",
+      ].join("\n"),
+    );
+  } finally {
+    output.restore();
+    globalThis.fetch = originalFetch;
+  }
 });
